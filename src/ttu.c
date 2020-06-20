@@ -28,6 +28,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <netinet/tcp.h>
 #include <ohmic.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -44,6 +45,7 @@ static void *_dlhandle;
 
 static int (*_bind)(int, const struct sockaddr *, socklen_t);
 static int (*_connect)(int, const struct sockaddr *, socklen_t);
+static int (*_setsockopt)(int, int, int, const void *, socklen_t);
 
 static struct ohm_t *_bindmap = NULL;
 static struct ohm_t *_connectmap = NULL;
@@ -341,6 +343,18 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
 	return _connect(sockfd, addr, addrlen);
 } /* connect() */
 
+int setsockopt(int sock, int level, int optname,
+		const void *optval, socklen_t optlen)
+{
+	struct sockaddr sa;
+	socklen_t salen = sizeof(sa);
+	if (getsockname(sock, &sa, &salen))
+		return -1;
+	if (sa.sa_family != AF_UNIX || level != SOL_TCP)
+		return _setsockopt(sock, level, optname, optval, optlen);
+	return 0;
+}
+
 static void *_dlsym(void *handle, char *name) {
 	void *symbol = dlsym(handle, name);
 
@@ -416,6 +430,7 @@ void __attribute__((constructor)) init(void) {
 
 	_bind    = _dlsym(_dlhandle, "bind");
 	_connect = _dlsym(_dlhandle, "connect");
+	_setsockopt = _dlsym(_dlhandle, "setsockopt");
 
 	_bindmap    = ohm_init(4, NULL);
 	_connectmap = ohm_init(4, NULL);
