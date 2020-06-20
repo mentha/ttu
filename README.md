@@ -41,7 +41,13 @@ The paramaters to ttu are the following:
 * `TTU_BIND`: A mapping of bindings (inet listening sockets) to unix sockets (aka a bind-map).
 * `TTU_CONNECT`: A mapping of connections (inet connecting sockets) to unix sockets (aka a connect-map).
 
-Socket mappings are in this format:
+Socket mapping of bindings are in this format:
+
+```
+[ip-addr]:[port]=[mode:]/path/to/socket.sock, ...
+```
+
+Socket mapping of connections are in this format:
 
 ```
 [ip-addr]:[port]=/path/to/socket.sock,[ip-addr]:[port]=/path/to/socket.sock, ...

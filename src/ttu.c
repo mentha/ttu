@@ -22,26 +22,23 @@
 
 #define _DEFAULT_SOURCE
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <unistd.h>
-
-#include <string.h>
+#include <arpa/inet.h>
+#include <dlfcn.h>
 #include <errno.h>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-
-#include <sys/un.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
-#include <arpa/inet.h>
-
-#include <dlfcn.h>
-
 #include <ohmic.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/un.h>
 #include <ttu.h>
+#include <unistd.h>
 
 static void *_dlhandle;
 
@@ -104,6 +101,8 @@ static char *ssprintf(char *fmt, ...) {
 
 	int len = vsnprintf(NULL, 0, fmt, ap);
 	char *str = malloc(len + 1);
+	if (!str)
+		abort();
 
 	va_start(ap, fmt);
 	vsnprintf(str, len, fmt, ap);
@@ -152,26 +151,127 @@ static char *_find_sockmap(struct ohm_t *map, struct in_addr addr, in_port_t por
 	return sockfile;
 } /* _find_sockmap() */
 
+static int getblocking(int fd)
+{
+	int fl = fcntl(fd, F_GETFL);
+	if (fl < 0)
+		return 1;
+	if (fl & O_NONBLOCK)
+		return 0;
+	return 1;
+}
+
+static int setblocking(int fd, int v)
+{
+	int fl = fcntl(fd, F_GETFL);
+	if (fl < 0)
+		return 1;
+	if (v)
+		fl |= O_NONBLOCK;
+	else
+		fl &= ~O_NONBLOCK;
+	return fcntl(fd, F_SETFL, fl) == -1;
+}
+
+static int bind_unix(int sockfd, const char *p, const char *sockfile)
+{
+	size_t pl = strlen(p);
+
+	struct sockaddr_un uaddr;
+
+	if (pl + 1 > sizeof(uaddr.sun_path)) {
+		_warn("path too long: %s\n", sockfile);
+		errno = EADDRNOTAVAIL;
+		return -1;
+	}
+
+	uaddr.sun_family = AF_UNIX;
+	memcpy(uaddr.sun_path, p, pl + 1);
+
+	_ttusock(sockfd);
+
+	int r = _bind(sockfd, (struct sockaddr *) &uaddr, sizeof(uaddr));
+	if (!r)
+		return 0;
+	if (errno != EADDRINUSE)
+		return -1;
+	int s = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (setblocking(s, 0) ||
+			!connect(s, (struct sockaddr *) &uaddr, sizeof(uaddr)) ||
+			errno == EALREADY || errno == EINPROGRESS) {
+		close(s);
+		errno = EADDRINUSE;
+		return -1;
+	}
+	close(s);
+	unlink(p);
+	return _bind(sockfd, (struct sockaddr *) &uaddr, sizeof(uaddr));
+}
+
 int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-	if(addr->sa_family == AF_INET || addr->sa_family == AF_INET6) {
-		struct sockaddr_in *iaddr = (struct sockaddr_in *) addr;
-		char *sockfile = _find_sockmap(_bindmap, iaddr->sin_addr, htons(iaddr->sin_port));
+	if (addr->sa_family != AF_INET || addrlen < sizeof(struct sockaddr_in))
+		return _bind(sockfd, addr, addrlen);
 
-		if(sockfile != NULL) {
-			struct sockaddr_un uaddr;
+	const struct sockaddr_in *iaddr = (const struct sockaddr_in *) addr;
+	const char *sockfile = _find_sockmap(_bindmap, iaddr->sin_addr,
+			htons(iaddr->sin_port));
+	if (sockfile == NULL)
+		return _bind(sockfd, addr, addrlen);
 
-			memset(&uaddr, 0, sizeof(struct sockaddr_un));
+	int mode = -1;
 
-			uaddr.sun_family = AF_UNIX;
-			memcpy(uaddr.sun_path, sockfile, 108);
+	size_t sfl = strlen(sockfile);
+	if (sfl == 0 || sockfile[sfl - 1] == ':') {
+		errno = EADDRNOTAVAIL;
+		return -1;
+	}
 
-			addr = (struct sockaddr *) &uaddr;
-			addrlen = sizeof(struct sockaddr_un);
-			_ttusock(sockfd);
+	const char *p, *np;
+	unsigned i;
+
+	for (i = 0, p = sockfile;
+			(np = strchr((char *) p, ':')) != NULL;
+			i++, p = np + 1) {
+		if (i == 0) {
+			mode = 0;
+			for (; p < np; p++) {
+				if (*p >= '0' && *p <= '7') {
+					mode = mode * 8 + *p - '0';
+				} else {
+					_warn("invalid mode: %s\n", sockfile);
+					errno = EADDRNOTAVAIL;
+					return -1;
+				}
+			}
+		} else {
+			_warn("unknown parameters at pos %d: %s\n", i, sockfile);
+			errno = EADDRNOTAVAIL;
+			return -1;
 		}
 	}
 
-	return _bind(sockfd, addr, addrlen);
+	int blocking = getblocking(sockfd);
+
+	if (bind_unix(sockfd, p, sockfile))
+		return -1;
+
+	setblocking(sockfd, blocking);
+
+	if (mode >= 0) {
+#ifdef __linux__
+		if (chmod(p, mode)) {
+			_warn("chmod failed: %s\n", strerror(errno));
+			errno = EACCES;
+			return -1;
+		}
+#else
+		_warn("setting mode is not supported\n");
+		errno = EACCES;
+		return -1;
+#endif
+	}
+
+	return 0;
 } /* bind() */
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
@@ -207,13 +307,10 @@ static void *_dlsym(void *handle, char *name) {
 } /* _dlsym() */
 
 static char *_strdup(char *s) {
-	int len = strlen(s);
-	char *ret = malloc(len + 1);
-
-	strncpy(ret, s, len);
-	ret[len] = '\0';
-
-	return ret;
+	char *r = strdup(s);
+	if (!r)
+		abort();
+	return r;
 } /* _strdup() */
 
 static void _etohm(struct ohm_t *hm, char *env) {
@@ -235,7 +332,7 @@ static void _etohm(struct ohm_t *hm, char *env) {
 		}
 
 		char *addr = strtok(current, "="),
-			 *sockfile = strtok(NULL, "=");
+		     *sockfile = strtok(NULL, "=");
 
 		if(_chrnstr(addr, ':') != 1) {
 			_warn("ignoring phony argument: %s\n", addr);
@@ -243,7 +340,7 @@ static void _etohm(struct ohm_t *hm, char *env) {
 		}
 
 		char *ahost = strtok(addr, ":"),
-			 *aport = strtok(NULL, ":");
+		     *aport = strtok(NULL, ":");
 
 		if(!sockfile)
 			break;

@@ -23,10 +23,10 @@ CC			?= gcc
 LNAME		?= libttu.so
 WNAME		?= ttu
 
-CLFLAGS		?= -ansi -pipe -shared -fPIC
+CLFLAGS		?= -std=c11 -O2 -pipe -shared -fPIC
 LLFLAGS		?= -ldl
 
-CWFLAGS		?= -ansi
+CWFLAGS		?= -std=c11 -O2
 LWFLAGS		?=
 
 WARNINGS	?= -Wall -Wextra -Werror
