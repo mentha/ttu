@@ -25,6 +25,16 @@
 
 #include "ohmic.h"
 
+static void *xmalloc(size_t sz)
+{
+	void *r = malloc(sz);
+	if (!r)
+		abort();
+	return r;
+}
+
+#define malloc(x) xmalloc(x)
+
 struct ohm_t *ohm_init(int size, int (*hash_func)(void *, size_t)) {
 	if(size < 1)
 		return NULL;
