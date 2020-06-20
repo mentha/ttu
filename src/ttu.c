@@ -151,6 +151,17 @@ static char *_find_sockmap(struct ohm_t *map, struct in_addr addr, in_port_t por
 	return sockfile;
 } /* _find_sockmap() */
 
+static char *_find_sockmap_by_port(struct ohm_t *map, in_port_t port) {
+	char k[20];
+	sprintf(k, "*:%d", (int) port);
+	char *r = ohm_search(map, k, strlen(k) + 1);
+	if (!r) {
+		strcpy(k, "*:*");
+		r = ohm_search(map, k, strlen(k) + 1);
+	}
+	return r;
+}
+
 static int getblocking(int fd)
 {
 	int fl = fcntl(fd, F_GETFL);
@@ -209,12 +220,29 @@ static int bind_unix(int sockfd, const char *p, const char *sockfile)
 }
 
 int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-	if (addr->sa_family != AF_INET || addrlen < sizeof(struct sockaddr_in))
-		return _bind(sockfd, addr, addrlen);
-
-	const struct sockaddr_in *iaddr = (const struct sockaddr_in *) addr;
-	const char *sockfile = _find_sockmap(_bindmap, iaddr->sin_addr,
-			htons(iaddr->sin_port));
+	const char *sockfile = NULL;
+	switch (addr->sa_family) {
+	case AF_INET: {
+		if (addrlen < sizeof(struct sockaddr_in))
+			break;
+		const struct sockaddr_in *iaddr =
+			(const struct sockaddr_in *) addr;
+		sockfile =
+			_find_sockmap(_bindmap, iaddr->sin_addr,
+					ntohs(iaddr->sin_port));
+	}
+		break;
+	case AF_INET6: {
+		if (addrlen < sizeof(struct sockaddr_in6))
+			break;
+		const struct sockaddr_in6 *iaddr =
+			(const struct sockaddr_in6 *) addr;
+		sockfile =
+			_find_sockmap_by_port(_bindmap,
+					ntohs(iaddr->sin6_port));
+	}
+		break;
+	}
 	if (sockfile == NULL)
 		return _bind(sockfd, addr, addrlen);
 
@@ -275,24 +303,42 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
 } /* bind() */
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-	if(addr->sa_family == AF_INET || addr->sa_family == AF_INET6) {
-		struct sockaddr_in *iaddr = (struct sockaddr_in *) addr;
-		char *sockfile = _find_sockmap(_connectmap, iaddr->sin_addr, htons(iaddr->sin_port));
-
-		if(sockfile != NULL) {
-			struct sockaddr_un uaddr;
-
-			memset(&uaddr, 0, sizeof(struct sockaddr_un));
-
-			uaddr.sun_family = AF_UNIX;
-			memcpy(uaddr.sun_path, sockfile, 108);
-
-			addr = (struct sockaddr *) &uaddr;
-			addrlen = sizeof(struct sockaddr_un);
-			_ttusock(sockfd);
-		}
+	const char *sockfile = NULL;
+	switch (addr->sa_family) {
+	case AF_INET: {
+		if (addrlen < sizeof(struct sockaddr_in))
+			break;
+		const struct sockaddr_in *iaddr =
+			(const struct sockaddr_in *) addr;
+		sockfile =
+			_find_sockmap(_connectmap, iaddr->sin_addr,
+					ntohs(iaddr->sin_port));
 	}
+		break;
+	case AF_INET6: {
+		if (addrlen < sizeof(struct sockaddr_in6))
+			break;
+		const struct sockaddr_in6 *iaddr =
+			(const struct sockaddr_in6 *) addr;
+		sockfile =
+			_find_sockmap_by_port(_connectmap,
+					ntohs(iaddr->sin6_port));
+	}
+		break;
+	}
+	if (sockfile == NULL)
+		return _connect(sockfd, addr, addrlen);
 
+	struct sockaddr_un uaddr;
+
+	memset(&uaddr, 0, sizeof(struct sockaddr_un));
+
+	uaddr.sun_family = AF_UNIX;
+	memcpy(uaddr.sun_path, sockfile, 108);
+
+	addr = (struct sockaddr *) &uaddr;
+	addrlen = sizeof(struct sockaddr_un);
+	_ttusock(sockfd);
 	return _connect(sockfd, addr, addrlen);
 } /* connect() */
 
