@@ -56,14 +56,13 @@
 	"OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n" \
 	"SOFTWARE.\n"
 
-#define DEFAULT_LIBPATH "/lib:/usr/lib:/usr/local/lib"
 #define DEFAULT_LIBNAME "libttu.so"
 
-static char *lpath = DEFAULT_LIBPATH;
-static char *lname = DEFAULT_LIBNAME;
+static const char *lpath = NULL;
+static const char *lname = DEFAULT_LIBNAME;
 
 static int quiet = 0;
-extern char *__progname;
+extern const char *__progname;
 
 static void license(void) {
 	fprintf(stderr, TTU_LICENSE);
@@ -128,7 +127,7 @@ static void bake_args(int argc, char **argv) {
 	}
 } /* bake_args() */
 
-static char *which(char *file, char *path) {
+static char *which(const char *file, const char *path) {
 	char *prefix = NULL,
 		 *_path = strdup(path);
 
@@ -159,7 +158,6 @@ static char *which(char *file, char *path) {
 } /* which() */
 
 int main(int argc, char **argv) {
-	char *libttu = NULL;
 	bake_args(argc, argv);
 
 	if(optind >= argc) {
@@ -167,21 +165,34 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	/* find the libttu.so library and set LD_PRELOAD accordingly */
-	libttu = which(lname, lpath);
+	char *libttu = NULL;
+	if (lpath) {
+		libttu = which(lname, lpath);
+		if(!libttu)
+			_bail("could not find '%s' in '%s'\n", lname, lpath);
+	} else {
+		libttu = strdup(DEFAULT_LIBNAME);
+	}
 
-	if(!libttu)
-		_bail("could not find '%s' in '%s'\n", lname, lpath);
+	if (getenv("LD_PRELOAD")) {
+		const char *p = getenv("LD_PRELOAD");
+		size_t pl = strlen(p);
+		size_t l = strlen(libttu);
+		char *n = realloc(libttu, pl + l + 2);
+		if (n == NULL)
+			abort();
+		libttu = n;
+		strcat(n, ":");
+		strcat(n, p);
+	}
 
 	setenv("LD_PRELOAD", libttu, 1);
 
 	if(!quiet)
 		_info("running %s\n", argv[optind]);
 
-	/* run child program */
 	execvp(argv[optind], argv + optind);
 
-	/* something bad happened ... */
-	free(libttu);
-	return 1;
+	perror("execvp");
+	return -1;
 }
