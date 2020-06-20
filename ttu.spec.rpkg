@@ -9,6 +9,9 @@ VCS:            {{{ git_dir_vcs }}}
 
 Source:         {{{ git_dir_pack }}}
 
+BuildRequires: gcc
+BuildRequires: make
+
 %description
 A small tool that silently converts TCP sockets to Unix sockets.
 
