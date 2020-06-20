@@ -105,8 +105,7 @@ static char *ssprintf(char *fmt, ...) {
 		abort();
 
 	va_start(ap, fmt);
-	vsnprintf(str, len, fmt, ap);
-	str[len] = '\0';
+	vsnprintf(str, len + 1, fmt, ap);
 
 	va_end(ap);
 	return str;
