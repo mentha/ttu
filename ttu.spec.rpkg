@@ -1,0 +1,32 @@
+Name:           {{{ git_dir_name }}}
+Version:        {{{ git_dir_version }}}
+Release:        1%{?dist}
+Summary:        A small tool that silently converts TCP sockets to Unix sockets.
+
+License:        MIT
+URL:            https://github.com/mentha/ttu
+VCS:            {{{ git_dir_vcs }}}
+
+Source:         {{{ git_dir_pack }}}
+
+%description
+A small tool that silently converts TCP sockets to Unix sockets.
+
+%prep
+{{{ git_dir_setup_macro }}}
+
+%build
+make %{?_smp_mflags}
+
+%install
+rm -rf $RPM_BUILD_ROOT
+%make_install IDLIB=%{_libdir} IDBIN=%{_bindir}
+
+%files
+%license LICENSE
+%doc README.md
+%{_bindir}/ttu
+%{_libdir}/libttu.so
+
+%changelog
+{{{ git_dir_changelog }}}

@@ -23,10 +23,10 @@ CC			?= gcc
 LNAME		?= libttu.so
 WNAME		?= ttu
 
-CLFLAGS		?= -std=c11 -O2 -pipe -shared -fPIC
+CLFLAGS		?= -std=c11 -O2 -g -pipe -shared -fPIC
 LLFLAGS		?= -ldl
 
-CWFLAGS		?= -std=c11 -O2
+CWFLAGS		?= -std=c11 -O2 -g
 LWFLAGS		?=
 
 WARNINGS	?= -Wall -Wextra -Werror
@@ -42,6 +42,7 @@ INCLUDE		?= $(wildcard $(DINCLUDE)/*.h)
 
 IDLIB		?= /usr/lib
 IDBIN		?= /usr/bin
+INSTALL         ?= install
 
 .PHONY: all debug clean
 
@@ -52,29 +53,19 @@ debug: clean debug-lib debug-wrap
 # Build normal libttu.so binary.
 $(LNAME): $(LSRC) $(INCLUDE)
 	$(CC) $(CLFLAGS) $(LSRC) $(LLFLAGS) -I$(DINCLUDE)/ -o $(LNAME) $(WARNINGS)
-	strip $(LNAME)
 
 # Build normal ttu binary.
 $(WNAME): $(WSRC) $(INCLUDE)
 	$(CC) $(CWFLAGS) $(WSRC) $(LWFLAGS) -I$(DINCLUDE)/ -o $(WNAME) $(WARNINGS)
-	strip $(WNAME)
-
-# Build debug libttu.so binary.
-debug-lib: $(SRC) $(INCLUDE)
-	$(CC) -O0 -ggdb $(CLFLAGS) $(LSRC) $(LLFLAGS) -I$(DINCLUDE)/ -o $(LNAME) $(WARNINGS)
-
-# Build debug ttu binary.
-debug-wrap:
-	$(CC) -O0 -ggdb $(CWFLAGS) $(WSRC) $(LWFLAGS) -I$(DINCLUDE)/ -o $(WNAME) $(WARNINGS)
 
 # Install binaries.
 install: $(LNAME) $(WNAME)
-	@cp -v $(LNAME) $(IDLIB)/$(LNAME)
-	@cp -v $(WNAME) $(IDBIN)/$(WNAME)
+	$(INSTALL) -D $(LNAME) $(DESTDIR)$(IDLIB)/$(LNAME)
+	$(INSTALL) -D $(WNAME) $(DESTDIR)$(IDBIN)/$(WNAME)
 
 # Uninstall binaries.
 uninstall:
-	@rm -fv $(IDLIB)/$(LNAME) $(IDBIN)/$(WNAME)
+	rm -fv $(DESTDIR)$(IDLIB)/$(LNAME) $(DESTDIR)$(IDBIN)/$(WNAME)
 
 clean:
 	rm -f $(LNAME) $(WNAME)
